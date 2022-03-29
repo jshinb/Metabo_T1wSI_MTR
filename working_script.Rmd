@@ -1,0 +1,115 @@
+---
+title: "Metabolomic association study of brain microstructure"
+output: html_notebook
+---
+
+```{r load_package}
+library(tidyverse)
+library(data.table)
+library(psych)
+library(patchwork)
+library(lme4)
+library(coxme)
+library(lmerTest)
+library(outliers)
+library(mvoutlier)
+library(GenABEL)
+```
+
+### 1. Brain data: need to check QC for MTR data
+```{r brain_data}
+f = "data/alex_data_with_MTR_adolescents_2022-02-03.tsv"
+d = fread(f)
+brain = subset(d,select=c(uniqueID,NormWM,NormGM,SI_QC,LobarGM_Z_MTR,LobarWM_Z_MTR))
+```
+
+### 2. Covariate data
+```{r covariate_data}
+#----------------------------------#
+#
+# To-DO:
+# 1. need to check QC for MTR data
+#
+#---------------------------------#
+cov = subset(d,select=c(uniqueID,fam_id,Sex,AgeAdoAtHospitalVisitInMonths,Weight,Height,BMI_Z_Score,BMI,BodyFat,CRP,FastingComments,VF,SF)) %>% 
+  mutate(age.years=AgeAdoAtHospitalVisitInMonths/12) %>%
+  dplyr::select(-AgeAdoAtHospitalVisitInMonths) %>% 
+  mutate(age.c = scale(age.years)[,1]) %>%
+  mutate(age.c2 = age.c^2)
+
+```
+
+### 3. Metabolite data (metabolon-ADO1) 
+```{r metabo}
+# the data had been filtered by using 'metaboprep' R package created by MRCIEU group (https://github.com/MRCIEU/metaboprep)
+metabo = fread("data/metabolon/ADO1_Metabolon_2022_03_23_Filtered_metabolite_data.txt")
+```
+
+### 4. Association tests
+#### 4.1 Regression of brain phenotype on covariates: get residuals
+```{r fit0, fig.align='center',fig.height=8,fig.width=8}
+# need kinship matrix
+yname = 'NormGM'
+covnames = c("age.c","age.c2","Sex")
+
+analdat = merge(subset(cov,select=c("uniqueID","fam_id",covnames)),
+                subset(brain,select=c("uniqueID",yname)))
+analdat = analdat %>% 
+  mutate(y=scale(analdat[[yname]])[,1])
+
+p1 = analdat %>% ggplot(aes(y=y)) + 
+  theme_bw() +
+  geom_boxplot() + 
+  ylab(yname) 
+
+p4 = analdat %>% ggplot(aes(x=y)) + 
+  theme_bw() +
+  geom_histogram() + 
+  xlab(yname) 
+
+p2 = analdat %>% ggplot(aes(y=y,x=age.c)) + 
+  theme_bw() +
+  geom_point(alpha=0.5) +
+  geom_smooth() + 
+  ylab(yname) 
+
+p3 = analdat %>% ggplot(aes(y=y,x=age.c)) + 
+  theme_bw() +
+  geom_smooth() + 
+  ylab(yname) 
+
+print((p1+p4)/(p2+p3))
+
+
+mod0 = paste("y ~ ",paste0(covnames,collapse = " + "),sep="")
+mod0 = as.formula(mod0)
+print(mod0)
+fit0 = lm(mod0,data=analdat,na.action = na.exclude)
+analdat[["y.resid"]] = resid(fit0)
+p5 = analdat %>% ggplot(aes(y=y.resid,x=age.c)) + 
+  theme_bw() +
+  geom_point(alpha=0.5) +
+  geom_smooth() + 
+  ylab(yname) 
+print(p5)
+
+op = par(mfrow=c(2,2),oma=c(0,0,3,0))
+plot(fit0,pch=20,col=grey(0.4))
+title(main=yname, outer=T, line=2.25)
+par(op)
+
+print(summary(fit0))
+
+library(mgcv)
+gfit = gam(y~s(age.c,bs="cr",k=4) + Sex, data=analdat)
+plot(gfit)
+
+# correct for family environment + relatedness
+```
+
+#### 4.2 Association tests with metabolites: regress regiduals on metabolites
+```{r metabo_test}
+
+```
+
+
